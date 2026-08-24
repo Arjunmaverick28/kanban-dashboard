@@ -117,5 +117,66 @@ pipeline {
                 '''
             }
         }
+
+        stage('Health Check') {
+            steps {
+                script {
+
+                    echo "Waiting for application to start..."
+
+                    sleep 5
+
+                    sh '''
+                        set -e
+
+                        echo "Checking container status..."
+
+                        docker inspect \
+                            --format='{{.State.Status}}' \
+                            kanban-pulled
+
+                        echo "Checking application..."
+
+                        curl --fail \
+                            --silent \
+                            --show-error \
+                            http://localhost:4173
+
+                        echo "Health check successful"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+
+        success {
+            echo "Pipeline completed successfully!"
+        }
+
+        failure {
+            echo "Pipeline failed. Starting rollback..."
+
+            sh '''
+                set +e
+
+                echo "Removing failed container..."
+
+                docker stop kanban-pulled || true
+                docker rm kanban-pulled || true
+
+                echo "Starting previous stable image..."
+
+                docker pull arjunmaverick/kanban-dashboard:latest
+
+                docker run -d \
+                    --name kanban-pulled \
+                    -p 4173:80 \
+                    arjunmaverick/kanban-dashboard:latest
+
+                echo "Rollback completed"
+            '''
+        }
     }
 }
