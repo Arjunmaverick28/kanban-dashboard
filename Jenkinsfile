@@ -67,5 +67,27 @@ pipeline {
         }
     }
 }
+        stage('Registry Push') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'dockerhub-creds',
+                usernameVariable: 'DOCKER_USERNAME',
+                passwordVariable: 'DOCKER_PASSWORD'
+            )
+        ]) {
+            sh '''
+                echo "$DOCKER_PASSWORD" | docker login \
+                    -u "$DOCKER_USERNAME" \
+                    --password-stdin
+
+                docker push "$FULL_IMAGE"
+                docker push "arjunmaverick/kanban-dashboard:latest"
+
+                docker logout
+            '''
+        }
+    }
+}
     }
 }
