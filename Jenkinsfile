@@ -172,7 +172,7 @@ pipeline {
                         curl --fail \
                             --silent \
                             --show-error \
-                            http://localhost:9999
+                            http://localhost:4173
 
                         echo "Health check successful"
                     '''
