@@ -17,12 +17,11 @@ pipeline {
                         usernameVariable: 'DOCKER_USERNAME',
                         passwordVariable: 'DOCKER_PASSWORD'
                     ),
-                    [
-                        $class: 'AmazonWebServicesCredentialsBinding',
+                    usernamePassword(
                         credentialsId: 'aws-creds',
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
                 ]) {
                     sh '''
                         echo "Docker Hub credentials are available"
@@ -43,6 +42,12 @@ pipeline {
             steps {
                 sh 'echo "Jenkins successfully checked out the project"'
                 sh 'ls -la'
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t kanban-dashboard:latest .'
             }
         }
     }
