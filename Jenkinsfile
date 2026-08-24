@@ -38,17 +38,34 @@ pipeline {
         }
     }
 }
-        stage('Build Test') {
-            steps {
-                sh 'echo "Jenkins successfully checked out the project"'
-                sh 'ls -la'
-            }
-        }
-
         stage('Docker Build') {
-            steps {
-                sh 'docker build -t kanban-dashboard:latest .'
-            }
+    steps {
+        script {
+
+            env.GIT_SHA = sh(
+                script: 'git rev-parse --short HEAD',
+                returnStdout: true
+            ).trim()
+
+            env.IMAGE_TAG = "build-${BUILD_NUMBER}-${GIT_SHA}"
+
+            env.FULL_IMAGE = "arjunmaverick/kanban-dashboard:${IMAGE_TAG}"
+
+            echo "Git SHA: ${GIT_SHA}"
+            echo "Build Number: ${BUILD_NUMBER}"
+            echo "Image: ${FULL_IMAGE}"
+
+            sh """
+                docker build \
+                    -t ${FULL_IMAGE} \
+                    .
+
+                docker tag \
+                    ${FULL_IMAGE} \
+                    arjunmaverick/kanban-dashboard:latest
+            """
         }
+    }
+}
     }
 }
