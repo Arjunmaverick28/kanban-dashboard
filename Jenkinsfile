@@ -61,10 +61,6 @@ pipeline {
                         docker build \
                             -t ${FULL_IMAGE} \
                             .
-
-                        docker tag \
-                            ${FULL_IMAGE} \
-                            arjunmaverick/kanban-dashboard:latest
                     """
                 }
             }
@@ -85,7 +81,6 @@ pipeline {
                             --password-stdin
 
                         docker push "$FULL_IMAGE"
-                        docker push arjunmaverick/kanban-dashboard:latest
 
                         docker logout
                     '''
@@ -95,26 +90,58 @@ pipeline {
 
         stage('Deploy to EC2') {
             steps {
-                sh '''
-                    set -e
+                script {
 
-                    echo "Deploying image: $FULL_IMAGE"
+                    sh '''
+                        set -e
 
-                    docker pull "$FULL_IMAGE"
+                        echo "Checking currently running container..."
 
-                    docker stop kanban-pulled || true
-                    docker rm kanban-pulled || true
+                        if docker ps --filter "name=kanban-pulled" \
+                            --format "{{.Names}}" | grep -q "^kanban-pulled$"
+                        then
+                            PREVIOUS_IMAGE=$(docker inspect \
+                                --format='{{.Config.Image}}' \
+                                kanban-pulled)
 
-                    docker run -d \
-                        --name kanban-pulled \
-                        -p 4173:80 \
-                        "$FULL_IMAGE"
+                            echo "Previous image: $PREVIOUS_IMAGE"
+                        else
+                            PREVIOUS_IMAGE=""
 
-                    echo "New container started"
+                            echo "No previous container found."
+                        fi
 
-                    docker ps \
-                        --filter "name=kanban-pulled"
-                '''
+                        echo "$PREVIOUS_IMAGE" > previous_image.txt
+
+                        echo "Stopping previous container..."
+
+                        docker stop kanban-pulled || true
+                        docker rm kanban-pulled || true
+
+                        echo "Pulling new image..."
+
+                        docker pull "$FULL_IMAGE"
+
+                        echo "Starting new container..."
+
+                        docker run -d \
+                            --name kanban-pulled \
+                            -p 4173:80 \
+                            "$FULL_IMAGE"
+
+                        echo "New container started."
+
+                        docker ps \
+                            --filter "name=kanban-pulled"
+                    '''
+
+                    env.PREVIOUS_IMAGE = sh(
+                        script: 'cat previous_image.txt',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Previous image saved as: ${env.PREVIOUS_IMAGE}"
+                }
             }
         }
 
@@ -131,9 +158,13 @@ pipeline {
 
                         echo "Checking container status..."
 
-                        docker inspect \
+                        STATUS=$(docker inspect \
                             --format='{{.State.Status}}' \
-                            kanban-pulled
+                            kanban-pulled)
+
+                        echo "Container status: $STATUS"
+
+                        test "$STATUS" = "running"
 
                         echo "Checking application..."
 
@@ -147,35 +178,89 @@ pipeline {
                 }
             }
         }
+
+        stage('Promote Latest') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        echo "$DOCKER_PASSWORD" | docker login \
+                            -u "$DOCKER_USERNAME" \
+                            --password-stdin
+
+                        echo "Promoting healthy image to latest..."
+
+                        docker tag \
+                            "$FULL_IMAGE" \
+                            arjunmaverick/kanban-dashboard:latest
+
+                        docker push \
+                            arjunmaverick/kanban-dashboard:latest
+
+                        docker logout
+
+                        echo "Latest tag updated successfully."
+                    '''
+                }
+            }
+        }
     }
 
     post {
 
         success {
-            echo "Pipeline completed successfully!"
+            echo "======================================"
+            echo "PIPELINE SUCCESSFUL"
+            echo "Image: ${FULL_IMAGE}"
+            echo "Latest tag updated."
+            echo "======================================"
         }
 
         failure {
-            echo "Pipeline failed. Starting rollback..."
+            echo "======================================"
+            echo "PIPELINE FAILED"
+            echo "Starting rollback..."
+            echo "Previous image: ${PREVIOUS_IMAGE}"
+            echo "======================================"
 
             sh '''
                 set +e
+
+                if [ -z "$PREVIOUS_IMAGE" ]; then
+                    echo "No previous image available."
+                    echo "Rollback cannot be performed."
+                    exit 0
+                fi
 
                 echo "Removing failed container..."
 
                 docker stop kanban-pulled || true
                 docker rm kanban-pulled || true
 
-                echo "Starting previous stable image..."
+                echo "Pulling previous image..."
 
-                docker pull arjunmaverick/kanban-dashboard:latest
+                docker pull "$PREVIOUS_IMAGE"
+
+                echo "Starting previous version..."
 
                 docker run -d \
                     --name kanban-pulled \
                     -p 4173:80 \
-                    arjunmaverick/kanban-dashboard:latest
+                    "$PREVIOUS_IMAGE"
 
-                echo "Rollback completed"
+                echo "Rollback container started."
+
+                docker ps \
+                    --filter "name=kanban-pulled"
+
+                echo "Rollback completed."
             '''
         }
     }
