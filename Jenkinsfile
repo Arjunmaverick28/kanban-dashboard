@@ -89,5 +89,27 @@ pipeline {
         }
     }
 }
+        stage('Deploy to EC2') {
+    steps {
+        sh '''
+            set -e
+
+            echo "Deploying image: $FULL_IMAGE"
+
+            docker pull "$FULL_IMAGE"
+
+            docker stop kanban-pulled || true
+            docker rm kanban-pulled || true
+
+            docker run -d \
+                --name kanban-pulled \
+                -p 4173:80 \
+                "$FULL_IMAGE"
+
+            echo "New container started"
+            docker ps --filter "name=kanban-pulled"
+        '''
+    }
+}
     }
 }
