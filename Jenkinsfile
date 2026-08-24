@@ -95,7 +95,9 @@ pipeline {
                     sh '''
                         set -e
 
-                        echo "Checking currently running container..."
+                        echo "======================================"
+                        echo "Checking currently running container"
+                        echo "======================================"
 
                         if docker ps --filter "name=kanban-pulled" \
                             --format "{{.Names}}" | grep -q "^kanban-pulled$"
@@ -126,6 +128,8 @@ pipeline {
 
                         docker run -d \
                             --name kanban-pulled \
+                            --memory 256m \
+                            --cpus 0.5 \
                             -p 4173:80 \
                             "$FULL_IMAGE"
 
@@ -133,6 +137,10 @@ pipeline {
 
                         docker ps \
                             --filter "name=kanban-pulled"
+
+                        echo "Resource limits configured:"
+                        echo "Memory limit: 256 MB"
+                        echo "CPU limit: 0.5 CPU"
                     '''
 
                     env.PREVIOUS_IMAGE = sh(
@@ -145,70 +153,103 @@ pipeline {
             }
         }
 
-       stage('Health Check') {
-    steps {
-        script {
+        stage('Health Check') {
+            steps {
+                script {
 
-            echo "Waiting for application to start..."
-            sleep 10
+                    echo "Waiting for application to start..."
 
-            sh '''
-                set -e
+                    sleep 10
 
-                echo "======================================"
-                echo "1. Checking container is running"
-                echo "======================================"
+                    sh '''
+                        set -e
 
-                STATUS=$(docker inspect \
-                    --format='{{.State.Status}}' \
-                    kanban-pulled)
+                        echo "======================================"
+                        echo "1. Checking container is running"
+                        echo "======================================"
 
-                echo "Container status: $STATUS"
+                        STATUS=$(docker inspect \
+                            --format='{{.State.Status}}' \
+                            kanban-pulled)
 
-                test "$STATUS" = "running"
+                        echo "Container status: $STATUS"
 
-                echo "Container is running."
+                        test "$STATUS" = "running"
 
-
-                echo "======================================"
-                echo "2. Checking Docker HEALTHCHECK"
-                echo "======================================"
-
-                HEALTH_STATUS=$(docker inspect \
-                    --format='{{.State.Health.Status}}' \
-                    kanban-pulled)
-
-                echo "Docker health status: $HEALTH_STATUS"
-
-                test "$HEALTH_STATUS" = "healthy"
-
-                echo "Docker HEALTHCHECK passed."
+                        echo "Container is running."
 
 
-                echo "======================================"
-                echo "3. Checking application endpoint"
-                echo "======================================"
+                        echo "======================================"
+                        echo "2. Checking Docker HEALTHCHECK"
+                        echo "======================================"
 
-                HTTP_CODE=$(curl \
-                    --silent \
-                    --output /dev/null \
-                    --write-out "%{http_code}" \
-                    http://localhost:4173)
+                        HEALTH_STATUS=$(docker inspect \
+                            --format='{{.State.Health.Status}}' \
+                            kanban-pulled)
 
-                echo "HTTP response code: $HTTP_CODE"
+                        echo "Docker health status: $HEALTH_STATUS"
 
-                test "$HTTP_CODE" = "200"
+                        test "$HEALTH_STATUS" = "healthy"
 
-                echo "Application endpoint check passed."
+                        echo "Docker HEALTHCHECK passed."
 
 
-                echo "======================================"
-                echo "ALL HEALTH CHECKS PASSED"
-                echo "======================================"
-            '''
+                        echo "======================================"
+                        echo "3. Checking application endpoint"
+                        echo "======================================"
+
+                        HTTP_CODE=$(curl \
+                            --silent \
+                            --output /dev/null \
+                            --write-out "%{http_code}" \
+                            http://localhost:4173)
+
+                        echo "HTTP response code: $HTTP_CODE"
+
+                        test "$HTTP_CODE" = "200"
+
+                        echo "Application endpoint check passed."
+
+
+                        echo "======================================"
+                        echo "4. Checking Docker resource limits"
+                        echo "======================================"
+
+                        MEMORY_LIMIT=$(docker inspect \
+                            --format='{{.HostConfig.Memory}}' \
+                            kanban-pulled)
+
+                        CPU_LIMIT=$(docker inspect \
+                            --format='{{.HostConfig.NanoCpus}}' \
+                            kanban-pulled)
+
+                        echo "Memory limit: $MEMORY_LIMIT bytes"
+                        echo "CPU limit: $CPU_LIMIT NanoCPUs"
+
+                        test "$MEMORY_LIMIT" = "268435456"
+                        test "$CPU_LIMIT" = "500000000"
+
+                        echo "Docker resource limits verified."
+
+
+                        echo "======================================"
+                        echo "5. Checking actual resource usage"
+                        echo "======================================"
+
+                        docker stats \
+                            --no-stream \
+                            --format "Container: {{.Name}} | CPU: {{.CPUPerc}} | Memory: {{.MemUsage}}" \
+                            kanban-pulled
+
+
+                        echo "======================================"
+                        echo "ALL HEALTH CHECKS PASSED"
+                        echo "======================================"
+                    '''
+                }
+            }
         }
-    }
-}
+
         stage('Promote Latest') {
             steps {
                 withCredentials([
@@ -248,7 +289,11 @@ pipeline {
         success {
             echo "======================================"
             echo "PIPELINE SUCCESSFUL"
+            echo "======================================"
             echo "Image: ${FULL_IMAGE}"
+            echo "Memory Limit: 256 MB"
+            echo "CPU Limit: 0.5 CPU"
+            echo "Health Check: PASSED"
             echo "Latest tag updated."
             echo "======================================"
         }
@@ -282,6 +327,8 @@ pipeline {
 
                 docker run -d \
                     --name kanban-pulled \
+                    --memory 256m \
+                    --cpus 0.5 \
                     -p 4173:80 \
                     "$PREVIOUS_IMAGE"
 
@@ -289,6 +336,10 @@ pipeline {
 
                 docker ps \
                     --filter "name=kanban-pulled"
+
+                echo "Rollback resource limits:"
+                echo "Memory limit: 256 MB"
+                echo "CPU limit: 0.5 CPU"
 
                 echo "Rollback completed."
             '''
