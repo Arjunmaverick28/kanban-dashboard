@@ -145,41 +145,70 @@ pipeline {
             }
         }
 
-        stage('Health Check') {
-            steps {
-                script {
+       stage('Health Check') {
+    steps {
+        script {
 
-                    echo "Waiting for application to start..."
+            echo "Waiting for application to start..."
+            sleep 10
 
-                    sleep 5
+            sh '''
+                set -e
 
-                    sh '''
-                        set -e
+                echo "======================================"
+                echo "1. Checking container is running"
+                echo "======================================"
 
-                        echo "Checking container status..."
+                STATUS=$(docker inspect \
+                    --format='{{.State.Status}}' \
+                    kanban-pulled)
 
-                        STATUS=$(docker inspect \
-                            --format='{{.State.Status}}' \
-                            kanban-pulled)
+                echo "Container status: $STATUS"
 
-                        echo "Container status: $STATUS"
+                test "$STATUS" = "running"
 
-                        test "$STATUS" = "running"
+                echo "Container is running."
 
-                        echo "Checking application..."
 
-                        # INTENTIONAL FAILURE FOR ROLLBACK TEST
-                        curl --fail \
-                            --silent \
-                            --show-error \
-                            http://localhost:4173
+                echo "======================================"
+                echo "2. Checking Docker HEALTHCHECK"
+                echo "======================================"
 
-                        echo "Health check successful"
-                    '''
-                }
-            }
+                HEALTH_STATUS=$(docker inspect \
+                    --format='{{.State.Health.Status}}' \
+                    kanban-pulled)
+
+                echo "Docker health status: $HEALTH_STATUS"
+
+                test "$HEALTH_STATUS" = "healthy"
+
+                echo "Docker HEALTHCHECK passed."
+
+
+                echo "======================================"
+                echo "3. Checking application endpoint"
+                echo "======================================"
+
+                HTTP_CODE=$(curl \
+                    --silent \
+                    --output /dev/null \
+                    --write-out "%{http_code}" \
+                    http://localhost:4173)
+
+                echo "HTTP response code: $HTTP_CODE"
+
+                test "$HTTP_CODE" = "200"
+
+                echo "Application endpoint check passed."
+
+
+                echo "======================================"
+                echo "ALL HEALTH CHECKS PASSED"
+                echo "======================================"
+            '''
         }
-
+    }
+}
         stage('Promote Latest') {
             steps {
                 withCredentials([
