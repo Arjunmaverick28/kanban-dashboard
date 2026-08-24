@@ -168,10 +168,11 @@ pipeline {
 
                         echo "Checking application..."
 
+                        # INTENTIONAL FAILURE FOR ROLLBACK TEST
                         curl --fail \
                             --silent \
                             --show-error \
-                            http://localhost:4173
+                            http://localhost:9999
 
                         echo "Health check successful"
                     '''
